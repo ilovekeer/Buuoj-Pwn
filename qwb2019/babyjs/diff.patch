@@ -1,0 +1,118 @@
+diff --git a/mjs/Makefile b/mjs/Makefile
+index 8585754..74b223f 100644
+--- a/mjs/Makefile
++++ b/mjs/Makefile
+@@ -5,8 +5,8 @@ BUILD_DIR = build
+ 
+ R ?= $(abspath $(REPO_ROOT))
+ RD ?= docker run -v $(R):$(R) -w $(CURDIR)
+-DOCKER_GCC ?= $(RD) docker.cesanta.com/gcc
+-DOCKER_CLANG ?= $(RD) docker.cesanta.com/clang
++DOCKER_GCC ?= 
++DOCKER_CLANG ?= 
+ 
+ include $(SRCPATH)/mjs_sources.mk
+ 
+@@ -18,7 +18,7 @@ TOP_HEADERS_DIRS = $(sort $(dir $(TOP_HEADERS)))
+ MFLAGS += -I. -I$(REPO_ROOT) -Isrc
+ MFLAGS += -DMJS_MAIN -DMJS_EXPOSE_PRIVATE -DCS_ENABLE_STDIO -DMJS_ENABLE_DEBUG -I../frozen
+ MFLAGS += $(CFLAGS_EXTRA)
+-CFLAGS += -lm -std=c99 -Wall -Wextra -pedantic -g $(MFLAGS)
++CFLAGS += -lm -std=c99 -Wall -Wextra -pedantic -g -fPIE -pie -z now $(MFLAGS)
+ COMMON_CFLAGS = -DCS_MMAP -DMJS_MODULE_LINES
+ ASAN_CFLAGS = -fsanitize=address
+ 
+diff --git a/mjs/src/mjs_exec.c b/mjs/src/mjs_exec.c
+index f4d2e70..2bd167d 100644
+--- a/mjs/src/mjs_exec.c
++++ b/mjs/src/mjs_exec.c
+@@ -875,7 +875,11 @@ MJS_PRIVATE mjs_err_t mjs_execute(struct mjs *mjs, size_t off, mjs_val_t *res) {
+           size_t retval_pos = mjs_get_int(
+               mjs, *vptr(&mjs->call_stack,
+                          -1 - CALL_STACK_FRAME_ITEM_RETVAL_STACK_IDX));
+-          *vptr(&mjs->stack, retval_pos - 1) = mjs_pop(mjs);
++          mjs_val_t tmp = mjs_pop(mjs);
++          if (vptr(&mjs->stack, retval_pos - 1) == NULL){
++            break;
++          }
++          *vptr(&mjs->stack, retval_pos - 1) = tmp;
+         }
+         // LOG(LL_INFO, ("AFTER SETRETVAL"));
+         // mjs_dump(mjs, 0, stdout);
+diff --git a/mjs/src/mjs_ffi.c b/mjs/src/mjs_ffi.c
+index aff3939..4a09466 100644
+--- a/mjs/src/mjs_ffi.c
++++ b/mjs/src/mjs_ffi.c
+@@ -40,7 +40,7 @@ struct cbdata {
+ };
+ 
+ void mjs_set_ffi_resolver(struct mjs *mjs, mjs_ffi_resolver_t *dlsym) {
+-  mjs->dlsym = dlsym;
++  mjs->dlsym = NULL;
+ }
+ 
+ static mjs_ffi_ctype_t parse_cval_type(struct mjs *mjs, const char *s,
+diff --git a/mjs/src/mjs_object.c b/mjs/src/mjs_object.c
+index 3eaf542..f6fbd35 100644
+--- a/mjs/src/mjs_object.c
++++ b/mjs/src/mjs_object.c
+@@ -251,8 +251,11 @@ mjs_val_t mjs_next(struct mjs *mjs, mjs_val_t obj, mjs_val_t *iterator) {
+   if (*iterator == MJS_UNDEFINED) {
+     struct mjs_object *o = get_object_struct(obj);
+     p = o->properties;
+-  } else {
+-    p = ((struct mjs_property *) get_ptr(*iterator))->next;
++  } else { 
++    p = ((struct mjs_property *) get_ptr(*iterator));
++    if(p != NULL){
++      p = p->next;
++    }
+   }
+ 
+   if (p == NULL) {
+diff --git a/mjs/src/mjs_string.c b/mjs/src/mjs_string.c
+index 65b2e09..70c0214 100644
+--- a/mjs/src/mjs_string.c
++++ b/mjs/src/mjs_string.c
+@@ -343,6 +343,7 @@ MJS_PRIVATE void mjs_string_index_of(struct mjs *mjs) {
+     goto clean;
+   }
+   str = mjs_get_string(mjs, &mjs->vals.this_obj, &str_len);
++  if (str_len > strlen(str)) goto clean;
+ 
+   if (!mjs_check_arg(mjs, 0, "searchValue", MJS_TYPE_STRING, &substr_v)) {
+     goto clean;
+@@ -455,7 +456,7 @@ MJS_PRIVATE void mjs_mkstr(struct mjs *mjs) {
+   if (offset_v != MJS_UNDEFINED) {
+     offset = mjs_get_int(mjs, offset_v);
+   }
+-  len = mjs_get_int(mjs, len_v);
++  len = 0;
+ 
+   ret = mjs_mk_string(mjs, ptr + offset, len, copy);
+ 
+diff --git a/mjs/src/mjs_util.c b/mjs/src/mjs_util.c
+index ff38261..b8753fb 100644
+--- a/mjs/src/mjs_util.c
++++ b/mjs/src/mjs_util.c
+@@ -65,21 +65,7 @@ void mjs_jprintf(mjs_val_t v, struct mjs *mjs, struct json_out *out) {
+         json_printf(out, "%s%02x", "\\x", ch);
+       }
+     }
+-  } else if (mjs_is_array(v)) {
+-    json_printf(out, "%s", "<array>");
+-  } else if (mjs_is_object(v)) {
+-    json_printf(out, "%s", "<object>");
+-  } else if (mjs_is_foreign(v)) {
+-    json_printf(out, "%s%lx%s", "<foreign_ptr@",
+-                (unsigned long) (uintptr_t) mjs_get_ptr(mjs, v), ">");
+-  } else if (mjs_is_function(v)) {
+-    json_printf(out, "%s%d%s", "<function@", (int) mjs_get_func_addr(v), ">");
+-  } else if (mjs_is_null(v)) {
+-    json_printf(out, "%s", "null");
+-  } else if (mjs_is_undefined(v)) {
+-    json_printf(out, "%s", "undefined");
+   } else {
+-    json_printf(out, "%s%" INT64_FMT "%s", "<???", (int64_t) v, ">");
+   }
+ }

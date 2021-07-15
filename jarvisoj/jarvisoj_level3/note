@@ -1,0 +1,23 @@
+leave 	=>    	mov     esp, ebp
+				pop     ebp
+
+call xx	=> 	 	push eip
+				jmp  write
+
+write
+
+ret		=>		pop  eip 	
+
+
+hanshu
+
+fanhui
+
+canshu 1
+
+canshu 2
+
+
+0xd5c00
+
+70

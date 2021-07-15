@@ -1,0 +1,1 @@
+AppJailLauncher.exe /outbound /port:12345 /timeout:60 /key:flag.txt daybyday.exe
